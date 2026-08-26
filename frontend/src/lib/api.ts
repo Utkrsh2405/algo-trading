@@ -91,3 +91,19 @@ export function engageKillSwitch(reason = "Manual kill switch triggered from das
 export function clearKillSwitch(): Promise<unknown> {
   return request<unknown>("/api/orders/kill-switch", { method: "DELETE" });
 }
+
+export function getStrategies(): Promise<any[]> {
+  return request<any[]>("/api/strategies");
+}
+
+export function startStrategy(id: string): Promise<unknown> {
+  return request<unknown>(`/api/strategies/${id}/start`, { method: "POST" });
+}
+
+export function stopStrategy(id: string): Promise<unknown> {
+  return request<unknown>(`/api/strategies/${id}/stop`, { method: "POST" });
+}
+
+export function getPositions(): Promise<any[]> {
+  return request<any[]>("/api/positions");
+}

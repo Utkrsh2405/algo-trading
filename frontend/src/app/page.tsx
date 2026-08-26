@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { CurrentUser, Order, engageKillSwitch, clearKillSwitch, getCurrentUser, getOrders } from "@/lib/api";
+import { CurrentUser, Order, engageKillSwitch, clearKillSwitch, getCurrentUser, getOrders, getStrategies, startStrategy, stopStrategy, getPositions } from "@/lib/api";
 import { usePriceFeed } from "@/lib/usePriceFeed";
 import { useRouter } from "next/navigation";
 
@@ -69,7 +69,7 @@ function Topbar({ user, connected, feedDown }: { user: CurrentUser | null; conne
   );
 }
 
-function Sidebar({ active }: { active: string }) {
+function Sidebar({ active, setActive }: { active: string, setActive: (t: string) => void }) {
   const items = [
     { id: "dashboard", label: "Dashboard",   icon: "◉" },
     { id: "prices",    label: "Live Prices", icon: "📈" },
@@ -81,7 +81,7 @@ function Sidebar({ active }: { active: string }) {
     <nav className="sidebar">
       <div className="nav-section-label">Main</div>
       {items.map((item) => (
-        <div key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`}>
+        <div key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`} onClick={() => setActive(item.id)}>
           <span className="nav-icon">{item.icon}</span>
           {item.label}
         </div>
@@ -243,6 +243,135 @@ function OrdersPanel({ orders, loading }: { orders: Order[]; loading: boolean })
   );
 }
 
+function StrategiesPanel({ feedDown }: { feedDown: boolean }) {
+  const [strategies, setStrategies] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadStrats = useCallback(() => {
+    getStrategies()
+      .then((data) => { setStrategies(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    loadStrats();
+    const interval = setInterval(loadStrats, 5000);
+    return () => clearInterval(interval);
+  }, [loadStrats]);
+
+  async function handleToggle(strat: any) {
+    if (feedDown && !strat.is_running) {
+      alert("Cannot start strategy: Broker feed is currently down.");
+      return;
+    }
+    try {
+      if (strat.is_running) {
+        await stopStrategy(strat.id);
+      } else {
+        await startStrategy(strat.id);
+      }
+      loadStrats();
+    } catch (e) {
+      alert(`Strategy toggle failed: ${e}`);
+    }
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-header">
+        <div className="panel-title">🤖 Trading Strategies</div>
+      </div>
+      <div className="panel-body">
+        {loading ? (
+           <div className="empty-state">Loading strategies...</div>
+        ) : strategies.length === 0 ? (
+           <div className="empty-state">No strategies available</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {strategies.map(s => (
+              <div key={s.id} style={{ padding: 16, border: "1px solid var(--border-color)", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <h3 style={{ margin: "0 0 8px 0" }}>{s.name}</h3>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginBottom: 8 }}>
+                    Symbol: <strong>{s.config.symbol}</strong> | Qty: {s.config.quantity} | Windows: {s.config.fast_window}/{s.config.slow_window}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className={`feed-status-dot ${s.is_running ? "live" : ""}`} style={{ background: s.is_running ? "var(--accent-green)" : "var(--text-muted)" }} />
+                    <span style={{ fontSize: "0.85rem" }}>{s.status_message}</span>
+                  </div>
+                </div>
+                <button 
+                  className={s.is_running ? "btn-secondary" : "btn-primary"} 
+                  onClick={() => handleToggle(s)}
+                  style={{ minWidth: 100 }}
+                >
+                  {s.is_running ? "Stop" : "Start"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PositionsPanel() {
+  const [positions, setPositions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadPos = useCallback(() => {
+    getPositions()
+      .then((data) => { setPositions(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    loadPos();
+    const interval = setInterval(loadPos, 5000);
+    return () => clearInterval(interval);
+  }, [loadPos]);
+
+  return (
+    <div className="panel">
+      <div className="panel-header">
+        <div className="panel-title">⚖️ Open Positions</div>
+      </div>
+      <div className="panel-body">
+        {loading ? (
+          <div className="empty-state">Loading positions...</div>
+        ) : positions.length === 0 ? (
+          <div className="empty-state">No open positions</div>
+        ) : (
+          <table className="price-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Quantity</th>
+                <th>Avg Price</th>
+                <th>P&L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map((p, i) => (
+                <tr key={i}>
+                  <td className="symbol-cell">{p.symbol}</td>
+                  <td>{p.quantity}</td>
+                  <td>₹{formatPrice(p.average_price)}</td>
+                  <td style={{ color: p.pnl > 0 ? "var(--accent-green)" : p.pnl < 0 ? "var(--accent-red)" : "inherit" }}>
+                    ₹{formatPrice(p.pnl || 0)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
 function AlertsPanel({ orders, feedDown }: { orders: Order[]; feedDown: boolean }) {
   const riskBlocked = orders.filter((o) => o.status === "FAILED" && o.rejection_reason?.toLowerCase().includes("risk")).length;
   const alerts = [];
@@ -283,6 +412,7 @@ function AlertsPanel({ orders, feedDown }: { orders: Order[]; feedDown: boolean 
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [killSwitchActive, setKillSwitchActive] = useState(false);
@@ -334,7 +464,7 @@ export default function DashboardPage() {
   return (
     <div className="app-shell">
       <Topbar user={user} connected={connected} feedDown={feedDown} />
-      <Sidebar active="dashboard" />
+      <Sidebar active={activeTab} setActive={setActiveTab} />
       <main className="main-content">
 
         {/* Kill Switch Banner */}
@@ -362,14 +492,34 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* Prices + Alerts */}
-        <div className="two-col">
-          <PricesPanel quotes={quotes} connected={connected} />
-          <AlertsPanel orders={orders} feedDown={feedDown} />
-        </div>
+        {activeTab === "dashboard" && (
+          <div className="two-col">
+            <PricesPanel quotes={quotes} connected={connected} />
+            <AlertsPanel orders={orders} feedDown={feedDown} />
+          </div>
+        )}
 
-        {/* Orders */}
-        <OrdersPanel orders={orders} loading={ordersLoading} />
+        {activeTab === "prices" && (
+          <PricesPanel quotes={quotes} connected={connected} />
+        )}
+
+        {activeTab === "orders" && (
+          <OrdersPanel orders={orders} loading={ordersLoading} />
+        )}
+
+        {activeTab === "strategies" && (
+          <StrategiesPanel feedDown={feedDown} />
+        )}
+
+        {activeTab === "positions" && (
+          <PositionsPanel />
+        )}
+        
+        {/* On dashboard, show recent orders at bottom */}
+        {activeTab === "dashboard" && (
+          <OrdersPanel orders={orders} loading={ordersLoading} />
+        )}
+
       </main>
     </div>
   );

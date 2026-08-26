@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, health, prices, broker, orders
+from app.api.routes import auth, health, prices, broker, orders, strategies, positions
 from app.core.config import settings
 from app.services.broker.mock import MockBroker
 from app.services.broker.zerodha import ZerodhaBroker
@@ -12,6 +12,7 @@ from app.services.price_feed import PriceFeedService
 import logging
 
 from app.services.strategy_engine import StrategyEngine
+from app.services.strategy.sma_crossover import SMACrossoverStrategy
 
 # Default watchlist for the mock feed until a real broker + strategy config
 # picks the symbol universe. Swap MockBroker for a real BrokerInterface
@@ -28,10 +29,25 @@ async def lifespan(app: FastAPI):
         broker_instance = MockBroker()
 
     feed = PriceFeedService(broker_instance)
-    engine = StrategyEngine(feed)
+    # Pass broker to engine so it can place orders
+    engine = StrategyEngine(feed, broker_instance)
     
+    # Pre-load the SMA Crossover strategy
+    sma_strategy = SMACrossoverStrategy(
+        strategy_id="sma-reliance-1",
+        name="SMA Crossover",
+        config={
+            "symbol": "RELIANCE",
+            "fast_window": 10,
+            "slow_window": 50,
+            "quantity": 100
+        }
+    )
+    engine.load_strategy(sma_strategy)
+
     app.state.price_feed = feed
     app.state.strategy_engine = engine
+    app.state.broker = broker_instance
     
     try:
         await feed.start(DEFAULT_SYMBOLS)
@@ -59,3 +75,6 @@ app.include_router(auth.router)
 app.include_router(prices.router)
 app.include_router(broker.router)
 app.include_router(orders.router)
+app.include_router(strategies.router)
+app.include_router(positions.router)
+

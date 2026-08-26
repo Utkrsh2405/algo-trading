@@ -25,6 +25,8 @@ class MockBroker(BrokerInterface):
         self._task: asyncio.Task | None = None
         # Track mock-placed orders so cancel_order can find them
         self._orders: dict[str, str] = {}  # broker_order_id → status
+        # Track mock positions
+        self._mock_positions: dict[str, int] = {}
 
     async def authenticate(self) -> None:
         return None
@@ -39,7 +41,20 @@ class MockBroker(BrokerInterface):
         return []
 
     async def get_positions(self) -> list[BrokerPosition]:
-        return []
+        # Convert our mock positions dict to the expected output
+        positions = []
+        for symbol, qty in self._mock_positions.items():
+            if qty != 0:
+                avg_price = self._prices.get(symbol, 100.0)
+                positions.append(BrokerPosition(
+                    symbol=symbol,
+                    quantity=qty,
+                    average_price=avg_price,
+                    pnl=0.0,
+                    realized=0.0,
+                    unrealized=0.0
+                ))
+        return positions
 
     async def subscribe_prices(self, symbols: list[str], on_quote: PriceCallback) -> None:
         for symbol in symbols:
@@ -75,6 +90,12 @@ class MockBroker(BrokerInterface):
         """Simulates an immediate COMPLETE fill with a generated order ID."""
         broker_order_id = f"MOCK-{uuid.uuid4().hex[:10].upper()}"
         self._orders[broker_order_id] = "COMPLETE"
+        
+        # Update mock positions
+        current_qty = self._mock_positions.get(symbol, 0)
+        qty_change = quantity if side == OrderSide.BUY else -quantity
+        self._mock_positions[symbol] = current_qty + qty_change
+        
         return PlacedOrder(broker_order_id=broker_order_id, broker_status="COMPLETE")
 
     async def cancel_order(self, broker_order_id: str) -> None:
