@@ -1,0 +1,51 @@
+databases:
+  - name: algo-db
+    databaseName: algotrading
+    user: algotrader
+    plan: free # Free tier database
+
+  - name: algo-redis
+    type: redis
+    plan: starter # Render does not have a free Redis tier; starts at $3/mo after trial
+
+services:
+  - type: web
+    name: algo-backend
+    env: python
+    plan: free
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: algo-db
+          property: connectionString
+      - key: REDIS_URL
+        fromDatabase:
+          name: algo-redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: CORS_ORIGINS
+        value: "*" # Update to your frontend URL once deployed for better security
+      - key: KITE_API_KEY
+        sync: false
+      - key: KITE_API_SECRET
+        sync: false
+      - key: KITE_ALGO_TAG
+        sync: false
+
+  - type: web
+    name: algo-frontend
+    env: node
+    plan: free
+    buildCommand: "cd frontend && npm install && npm run build"
+    startCommand: "cd frontend && npm start"
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE_URL
+        fromService:
+          type: web
+          name: algo-backend
+          property: url
